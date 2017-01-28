@@ -2,7 +2,8 @@
 
 set -o errexit -o xtrace
 
-bucket=ecs-refarch-continuous-deployment
+#bucket=ecs-refarch-continuous-deployment
+bucket=ecs-refarch
 
 zip deploy/templates.zip ecs-refarch-continuous-deployment.yaml templates/*
 
