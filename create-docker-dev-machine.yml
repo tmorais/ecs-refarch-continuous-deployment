@@ -1,0 +1,211 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Creates a host to use in .Net Core demo. Includes: .netcore, yoeman, docker, and AWS CLI'
+
+Parameters:
+  KeyName:
+    Description: 'Optional key pair of the ec2-user to establish a SSH connection to the SSH bastion host/instance.'
+    Type: String
+    Default: 'docker-bastion-host'
+  InstanceType:
+    Description: 'Instance type of the SSH bastion host/instance.'
+    Type: String
+    Default: 'm4.large'
+  
+Mappings:
+  RegionMap:
+    'us-east-1':
+      AMI: 'ami-f4cc1de2'
+
+Conditions:
+  HasKeyName: !Not [!Equals [!Ref KeyName, '']]
+  
+Resources:
+  DockerVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      InstanceTenancy: dedicated
+      Tags:
+      - Key: docker-vpc-description
+        Value: Default vpc for docker image
+
+  DockerSubNet:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref DockerVPC
+        CidrBlock: 10.0.0.0/24
+        AvailabilityZone: "us-east-1a"
+        MapPublicIpOnLaunch: true
+        Tags:
+        - Key: docker-subnet-description
+          Value: Default subnet for docker Image
+  
+  DockerIGW:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        Tags:
+         - Key: docker-igw-description
+           Value: Internet gateway for the Docker host
+
+  DockerIGWAttachment:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId: !Ref DockerVPC
+        InternetGatewayId: !Ref DockerIGW
+  
+  DockerPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref DockerVPC
+  
+  DockerRouteToInternet:
+    Type: AWS::EC2::Route
+    DependsOn: DockerIGW
+    Properties:
+      RouteTableId: !Ref DockerPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref DockerIGW
+  
+  DockerPublicSubnetRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DockerSubNet
+      RouteTableId: !Ref DockerPublicRouteTable
+
+  DockerHostSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'SG to access via SSH the host containing the tools.'
+      VpcId: !Ref DockerVPC 
+      SecurityGroupIngress:
+      - 
+        IpProtocol: tcp
+        FromPort : '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
+      - 
+        IpProtocol: tcp
+        FromPort : 5000
+        ToPort: 8443
+        CidrIp: 0.0.0.0/0
+      -
+        IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0  
+
+  DockerAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'DockerAccessRole'
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ec2.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies: 
+        - 
+          PolicyName: 'dockerhost'
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - 
+                Effect: "Allow"
+                Action: "ecr:*"
+                Resource: "*"
+
+  DockerInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties: 
+      Path: '/'
+      Roles:
+      - !Ref DockerAccessRole 
+
+  DockerHost:
+    Type: 'AWS::EC2::Instance'
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          files:
+            '/etc/cfn/cfn-hup.conf':
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+                interval=1
+              mode: '000400'
+              owner: root
+              group: root
+            '/etc/cfn/hooks.d/cfn-auto-reloader.conf':
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.DockerHost.Metadata.AWS::CloudFormation::Init
+                action=/usr/local/bin/cfn-init --verbose --stack=${AWS::StackName} --region=${AWS::Region} --resource=DockerHost
+                runas=root
+          services:
+            sysvinit:
+              cfn-hup:
+                enabled: true
+                ensureRunning: true
+                files:
+                - '/etc/cfn/cfn-hup.conf'
+                - '/etc/cfn/hooks.d/cfn-auto-reloader.conf'
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref DockerInstanceProfile
+      SecurityGroupIds:
+      - !Ref DockerHostSecurityGroup
+      KeyName: !If [HasKeyName, !Ref KeyName, !Ref 'AWS::NoValue']
+      SubnetId: !Ref DockerSubNet
+      Tags:
+      - Key: Name
+        Value: 'DotNetCore Demo - Docker Builder'
+      UserData:
+        'Fn::Base64': !Sub |
+          #!/bin/bash -x
+          apt-get update -y
+          apt-get -y install python-pip
+          pip install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+          cp /usr/local/init/ubuntu/cfn-hup /etc/init.d/cfn-hup
+          chmod +x /etc/init.d/cfn-hup
+          update-rc.d cfn-hup defaults
+          service cfn-hup start
+          sh -c 'echo "deb [arch=amd64] https://apt-mo.trafficmanager.net/repos/dotnet-release/ xenial main" > /etc/apt/sources.list.d/dotnetdev.list'
+          apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 417A0893
+          apt-get update
+          apt-get install -y dotnet-dev-1.0.1
+          apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys 58118E89F3A912897C070ADBF76221572C52609D
+          apt-add-repository 'deb https://apt.dockerproject.org/repo ubuntu-xenial main'
+          apt-get update
+          apt-get install -y docker-engine
+          systemctl status docker
+          apt-get install -y awscli curl
+          curl --silent --location https://deb.nodesource.com/setup_6.x | sudo bash -
+          apt-get -y install nodejs
+          npm install -g yo
+          npm install -g generator-aspnet
+          /usr/local/bin/cfn-init -v --stack ${AWS::StackName} --resource DockerHost --region ${AWS::Region}
+          /usr/local/bin/cfn-signal -e $? --region ${AWS::Region} --stack ${AWS::StackName} --resource DockerHost
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT10M
+Outputs:
+  TemplateID:
+    Description: 'VPC Template ID'
+    Value: 'Adding a docker host with .Net Core installed.'
+  DockerHostDns:
+    Description: 'The DNS of the docker host.'
+    Value: !GetAtt DockerHost.PublicDnsName
+    Export:
+      Name: !Sub '${AWS::StackName}-DockerHostDns'
+  DockerHostSshCommand:
+    Description: 'The SSH command to connect to the docker host.'
+    Value: !Sub "ssh ubuntu@${DockerHost.PublicDnsName}"
