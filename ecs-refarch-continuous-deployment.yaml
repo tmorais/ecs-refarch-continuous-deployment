@@ -1,6 +1,6 @@
 Description: >
   This template illustrates how to use AWS CodeBuild and AWS CodePipeline to
-  achieve continuous deployment of source code from a GitHub repository via a
+  achieve continuous deployment of .net source code from a GitHub repository via a
   Docker container to an Amazon EC2 Container Service cluster.
 
 
@@ -11,7 +11,7 @@ Parameters:
 
   GitHubRepo:
     Type: String
-    Default: ecs-demo-simple-net-core-app
+    Default: dot-net-core
     Description: The repo name of the sample service.
 
   GitHubBranch:
@@ -69,7 +69,7 @@ Resources:
         TargetGroup: !GetAtt LoadBalancer.Outputs.TargetGroup
         Repository: !GetAtt Service.Outputs.Repository
         StackName: !GetAtt Service.Outputs.StackName
-        TemplateBucket: ecs-refarch-continuous-deployment
+        TemplateBucket: ecs-sample-net-core-app
 
   LoadBalancer:
     Type: AWS::CloudFormation::Stack
@@ -93,9 +93,9 @@ Resources:
       TemplateURL: https://s3.amazonaws.com/ecs-sample-net-core-app/templates/vpc.yaml
       Parameters:
         Name: !Ref AWS::StackName
-        VpcCIDR: 10.215.0.0/16
-        Subnet1CIDR: 10.215.10.0/24
-        Subnet2CIDR: 10.215.20.0/24
+        VpcCIDR: 10.50.0.0/16
+        Subnet1CIDR: 10.50.10.0/24
+        Subnet2CIDR: 10.50.20.0/24
 
 
 Outputs:
