@@ -154,9 +154,9 @@ Resources:
                 - printf "%s:%s" "$REPOSITORY_URI" "$(cat /tmp/build_id.out)" > /tmp/build_tag.out
                 - printf '{"tag":"%s"}' "$(cat /tmp/build_id.out)" > /tmp/build.json
                 - $(aws ecr get-login)
-                - $(dotnet publish --configuration Release)
             build:
               commands:
+                - docker run -i -v $(pwd):/build --workdir /build "microsoft/aspnetcore-build" bash -c "dotnet restore && dotnet publish -c Release -o ./bin/Release/PublishOutput"
                 - docker build --tag "$(cat /tmp/build_tag.out)" .
             post_build:
               commands:
