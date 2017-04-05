@@ -65,7 +65,7 @@ The following sections explains all of the resources created by the CloudFormati
 
   Resources that compose the deployment pipeline include the CodeBuild project, the CodePipeline pipeline, an S3 bucket for deployment artifacts, and all necessary IAM roles used by those services.
 
-  This deployment pipeline uses a technique documented [here](https://hub.docker.com/r/microsoft/aspnetcore-build) to build/compile the application using a Docker image with the microsoft/aspnetcore-build image and uses the build output to actually build the Docker image with the compiled output. This reduces your Docker image size considerably and speeds up the startup process of you app.
+  This deployment pipeline uses a technique documented [here](https://hub.docker.com/r/microsoft/aspnetcore-build) to build/compile the application using a Docker image with the microsoft/aspnetcore-build image and uses the build output to actually build the Docker production image with the compiled code. This reduces your production Docker image size considerably and speeds up the startup process of you app.
 
 #### [Service](templates/service.yaml)
 
